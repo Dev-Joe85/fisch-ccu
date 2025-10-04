@@ -35,7 +35,7 @@
   <header>
     <div class="wrap">
       <h1 style="margin:0 0 6px">Fisch Live CCU Tracker</h1>
-      <div class="muted small">Live <span class="pill">playing</span> from Roblox Games API (via roproxy), auto-refresh, session graph, CSV export, and manual event markers.</div>
+      <div class="muted small">Live <span class="pill">playing</span> from Roblox Games API (via roproxy), auto-refresh, session graph, CSV export, and markers.</div>
     </div>
   </header>
   <main class="wrap">
@@ -98,28 +98,25 @@
       </div>
 
       <div style="margin-top:10px" class="small muted">
-        Uses <code class="mono">games.roproxy.com</code> & <code class="mono">apis.roproxy.com</code>. If mirrors rate‑limit, increase refresh.
+        Uses <code class="mono">games.roproxy.com</code> & <code class="mono">apis.roproxy.com</code>. If mirrors rate-limit, increase refresh.
       </div>
     </div>
 
     <div class="card" style="margin-top:16px">
       <h3 style="margin-top:0">How it works</h3>
       <ol>
-        <li>Resolve <b>Universe ID</b> from the Fisch <b>Place ID</b> using <code>https://apis.roproxy.com/universes/v1/places/{placeId}/universe</code>.</li>
-        <li>Poll <code>https://games.roproxy.com/v1/games?universeIds={universeId}</code> → read <b>playing</b> field (live CCU).</li>
+        <li>Resolve <b>Universe ID</b> from the Fisch <b>Place ID</b> via <code>https://apis.roproxy.com/universes/v1/places/{placeId}/universe</code>.</li>
+        <li>Poll <code>https://games.roproxy.com/v1/games?universeIds={universeId}</code> → read <b>playing</b> (live CCU).</li>
       </ol>
-      <div class="small muted">No keys. Client‑side only.</div>
+      <div class="small muted">No keys. Client-side only.</div>
     </div>
   </main>
-  <footer>
-    Built for quick monitoring. No tracking, no cookies.
-  </footer>
+  <footer>Built for quick monitoring. No tracking, no cookies.</footer>
 
   <script>
-    // ==== Config ====
-    const PLACE_ID = 16732694052; // Fisch
+    const PLACE_ID = 16732694052; // Fisch place id
 
-    // ==== DOM ====
+    // DOM
     const ccuNowEl = document.getElementById('ccuNow');
     const peakSessEl = document.getElementById('peakSess');
     const deltaEl = document.getElementById('delta');
@@ -138,28 +135,23 @@
     placeIdTxt.textContent = PLACE_ID;
     rbxLink.href = `https://www.roblox.com/games/${PLACE_ID}`;
 
-    // ==== State ====
-    const points = [];   // { t:number (ms), v:number }
-    const markers = [];  // timestamps (ms)
+    // State
+    const points = [];   // { t:number, v:number }
+    const markers = [];  // number timestamps (ms)
     let peak = 0, prev = null, timer = null, paused = false;
 
-    // Load persisted state
     const LS_KEY = 'fisch_ccu_points_v1';
     const LS_MRK = 'fisch_ccu_markers_v1';
-    if (localStorage.getItem(LS_KEY)) {
-      try { points.push(...JSON.parse(localStorage.getItem(LS_KEY))); } catch {}
-    }
-    if (localStorage.getItem(LS_MRK)) {
-      try { markers.push(...JSON.parse(localStorage.getItem(LS_MRK))); } catch {}
-    }
+    if (localStorage.getItem(LS_KEY)) { try { points.push(...JSON.parse(localStorage.getItem(LS_KEY))); } catch {} }
+    if (localStorage.getItem(LS_MRK)) { try { markers.push(...JSON.parse(localStorage.getItem(LS_MRK))); } catch {} }
 
-    // ==== Canvas ====
+    // Canvas
     const canvas = document.getElementById('chart');
     const ctx = canvas.getContext('2d');
 
     function resizeCanvas() {
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.floor(rect.width * window.devicePixelRatio);
+      canvas.width  = Math.floor(rect.width * window.devicePixelRatio);
       canvas.height = Math.floor(260 * window.devicePixelRatio);
     }
     window.addEventListener('resize', ()=>{ resizeCanvas(); drawChart(); });
@@ -167,13 +159,11 @@
 
     function yScale(min, max, v, H) {
       const pad = (max - min) || 1;
-      return H - ((v - min) / pad) * (H - 20) - 10; // top/bottom padding
+      return H - ((v - min) / pad) * (H - 20) - 10;
     }
-
     function drawAxes(min, max) {
       const W = canvas.width, H = canvas.height;
       ctx.save();
-      // Horizontal grid lines + labels (min, mid, max)
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis');
       ctx.fillStyle = '#8aa3bd';
       ctx.lineWidth = 1; ctx.globalAlpha = 0.25; ctx.beginPath();
@@ -192,7 +182,6 @@
       });
       ctx.restore();
     }
-
     function drawChart() {
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0,0,W,H);
@@ -202,10 +191,8 @@
       const max = Math.max(...points.map(p=>p.v));
       drawAxes(min, max);
 
-      // X step
       const xstep = W / Math.max(points.length - 1, 1);
 
-      // Line path (optionally smoothed)
       ctx.beginPath();
       points.forEach((p, i)=>{
         const x = i * xstep;
@@ -213,13 +200,12 @@
         if (!smoothChk.checked) {
           i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
         } else {
-          // Simple smoothing via quadratic bezier to the midpoint between this and next
           if (i === 0) ctx.moveTo(x, y);
           else {
             const prevX = (i-1) * xstep;
             const prevY = yScale(min, max, points[i-1].v, H);
-            const midX = (prevX + x)/2;
-            const midY = (prevY + y)/2;
+            const midX  = (prevX + x)/2;
+            const midY  = (prevY + y)/2;
             ctx.quadraticCurveTo(prevX, prevY, midX, midY);
             if (i === points.length-1) ctx.quadraticCurveTo(midX, midY, x, y);
           }
@@ -227,7 +213,6 @@
       });
       ctx.lineWidth = 3*window.devicePixelRatio; ctx.strokeStyle = '#5fb3ff'; ctx.stroke();
 
-      // Fill under
       const grad = ctx.createLinearGradient(0,0,0,H);
       grad.addColorStop(0,'rgba(95,179,255,.22)');
       grad.addColorStop(1,'rgba(95,179,255,0)');
@@ -240,20 +225,16 @@
       ctx.fillStyle = '#ffd166';
       ctx.lineWidth = 2*window.devicePixelRatio;
       markers.forEach(ts=>{
-        // find closest index
         const idx = points.findIndex(p=>p.t>=ts);
         if (idx < 0) return;
         const x = idx * xstep;
-        ctx.beginPath();
-        ctx.moveTo(x, 10); ctx.lineTo(x, H-10);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, H-10); ctx.stroke();
         ctx.beginPath(); ctx.arc(x, 10, 4*window.devicePixelRatio, 0, Math.PI*2); ctx.fill();
       });
       ctx.restore();
 
-      // Range text
       const start = new Date(points[0].t).toLocaleTimeString();
-      const end = new Date(points[points.length-1].t).toLocaleTimeString();
+      const end   = new Date(points[points.length-1].t).toLocaleTimeString();
       rangeTxt.textContent = `Window: ${start} → ${end}  •  Min ${fmt(min)}  •  Max ${fmt(max)}`;
     }
 
@@ -264,7 +245,6 @@
       const j = await r.json();
       return j.universeId;
     }
-
     async function fetchPlaying(universeId) {
       const url = `https://games.roproxy.com/v1/games?universeIds=${universeId}`;
       const r = await fetch(url);
@@ -277,7 +257,6 @@
 
     function fmt(n){ return Intl.NumberFormat().format(n); }
     function stamp(){ return new Date().toLocaleTimeString(); }
-
     function persistIfNeeded(){
       if (!persistChk.checked) return;
       try {
@@ -292,11 +271,10 @@
         const playing = await fetchPlaying(window.__UNI_ID);
         const now = { t: Date.now(), v: playing };
         points.push(now);
-        // keep ~20 min @5s (240 points) by default; if persisted, keep up to ~24h (~17280 @5s) but clamp to 3600
-        const limit = persistChk.checked ? 3600 : 240;
+        const limit = persistChk.checked ? 3600 : 240; // ~5s * 240 ≈ 20 min
         if (points.length > limit) points.splice(0, points.length - limit);
         peak = Math.max(peak, playing);
-        const d = prev==null? 0 : (playing - prev);
+        const d = prev==null ? 0 : (playing - prev);
         prev = playing;
         ccuNowEl.textContent = fmt(playing);
         peakSessEl.textContent = fmt(peak);
@@ -324,24 +302,19 @@
         console.error(e);
       }
     }
-
     function setTimer(ms){ if (timer) clearInterval(timer); timer = setInterval(poll, ms); }
 
-    // ==== UI Handlers ====
+    // UI
     intervalSel.addEventListener('change', e=>setTimer(parseInt(e.target.value,10)));
     pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
     markBtn.addEventListener('click', ()=>{ markers.push(Date.now()); drawChart(); persistIfNeeded(); });
     csvBtn.addEventListener('click', ()=>{
       const rows = [['timestamp_iso','ccu']].concat(points.map(p=>[new Date(p.t).toISOString(), p.v]));
-      const csv = rows.map(r=>r.join(',')).join('
-');
+      const csv = rows.map(r=>r.join(',')).join('\n');
       const blob = new Blob([csv], {type:'text/csv'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'fisch_ccu.csv'; a.click(); URL.revokeObjectURL(url);
     });
-
-    // Persist checkbox restores previous state
-    persistChk.checked = !!localStorage.getItem(LS_KEY);
 
     init();
   </script>
