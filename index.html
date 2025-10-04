@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fisch Live CCU Tracker</title>
+  <style>
+    :root { --bg:#0b0f14; --card:#121821; --muted:#9bb2c7; --fg:#e9f2fb; --bad:#ff6b6b; --good:#37d67a; --axis:#2a394f; }
+    * { box-sizing:border-box }
+    body { margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:var(--bg); color:var(--fg); }
+    header { padding:20px 16px; border-bottom:1px solid #1d2633; background:linear-gradient(180deg,#0b0f14,#0b0f1400); }
+    .wrap { max-width:1100px; margin:0 auto; padding:16px; }
+    .card { background:var(--card); border:1px solid #1d2633; border-radius:16px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.25) }
+    .row { display:flex; gap:16px; flex-wrap:wrap }
+    .stat { flex:1 1 220px; padding:14px; border-radius:12px; background:#0e141d; border:1px solid #1b2431 }
+    .stat h3 { margin:0 0 6px; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted) }
+    .stat p { margin:0; font-size:28px; font-weight:700 }
+    .muted { color:var(--muted) }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace }
+    .small { font-size:12px }
+    canvas { width:100%; height:260px; display:block; }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid #203047; background:#0f1724; font-size:12px; color:var(--muted) }
+    footer { padding:24px; text-align:center; color:#7f95aa }
+    button, select { background:#0f1724; color:var(--fg); border:1px solid #203047; padding:10px 12px; border-radius:10px; }
+    button:hover { filter:brightness(1.15) }
+    a { color:#8ec7ff; text-decoration:none }
+    a:hover { text-decoration:underline }
+    .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .legend { display:flex; gap:10px; align-items:center }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; background:#5fb3ff }
+    .marker-dot { background:#ffd166 }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1 style="margin:0 0 6px">Fisch Live CCU Tracker</h1>
+      <div class="muted small">Live <span class="pill">playing</span> from Roblox Games API (via roproxy), auto-refresh, session graph, CSV export, and manual event markers.</div>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card" id="app">
+      <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
+        <div>
+          <div class="muted small">Tracking game</div>
+          <div style="display:flex; align-items:center; gap:10px">
+            <h2 style="margin:4px 0">Fisch 🐟</h2>
+            <a id="rbxLink" class="pill" target="_blank" rel="noopener">Open on Roblox</a>
+          </div>
+          <div class="small muted">Place ID <span class="mono" id="placeIdTxt"></span> • Universe ID <span class="mono" id="universeIdTxt"></span></div>
+        </div>
+        <div class="controls">
+          <label class="small muted" for="intervalSel">Refresh</label>
+          <select id="intervalSel">
+            <option value="5000">5s</option>
+            <option value="10000">10s</option>
+            <option value="30000">30s</option>
+            <option value="60000">60s</option>
+          </select>
+          <button id="pauseBtn" title="Pause/Resume polling">⏸ Pause</button>
+          <button id="markBtn" title="Drop a vertical marker (e.g., update released)">📍 Add marker</button>
+          <button id="csvBtn" title="Download captured data as CSV">⬇️ Download CSV</button>
+          <label class="small muted"><input type="checkbox" id="persistChk"> Persist to localStorage</label>
+          <label class="small muted"><input type="checkbox" id="smoothChk" checked> Smooth line</label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="stat">
+          <h3>Current CCU</h3>
+          <p id="ccuNow">—</p>
+          <div class="small muted">from <span class="mono">/v1/games?universeIds=…</span></div>
+        </div>
+        <div class="stat">
+          <h3>Peak (session)</h3>
+          <p id="peakSess">—</p>
+          <div class="small muted">since you opened the page</div>
+        </div>
+        <div class="stat">
+          <h3>Δ last</h3>
+          <p id="delta">—</p>
+          <div class="small muted">change vs previous poll</div>
+        </div>
+        <div class="stat">
+          <h3>Last update</h3>
+          <p id="lastTs">—</p>
+          <div class="small muted">local time</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="legend small muted" style="margin-bottom:6px">
+          <span class="dot"></span> CCU
+          <span class="dot marker-dot"></span> Marker
+        </div>
+        <canvas id="chart" width="1024" height="260" aria-label="CCU chart"></canvas>
+        <div class="small muted" id="rangeTxt" style="margin-top:6px">—</div>
+      </div>
+
+      <div style="margin-top:10px" class="small muted">
+        Uses <code class="mono">games.roproxy.com</code> & <code class="mono">apis.roproxy.com</code>. If mirrors rate‑limit, increase refresh.
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">How it works</h3>
+      <ol>
+        <li>Resolve <b>Universe ID</b> from the Fisch <b>Place ID</b> using <code>https://apis.roproxy.com/universes/v1/places/{placeId}/universe</code>.</li>
+        <li>Poll <code>https://games.roproxy.com/v1/games?universeIds={universeId}</code> → read <b>playing</b> field (live CCU).</li>
+      </ol>
+      <div class="small muted">No keys. Client‑side only.</div>
+    </div>
+  </main>
+  <footer>
+    Built for quick monitoring. No tracking, no cookies.
+  </footer>
+
+  <script>
+    // ==== Config ====
+    const PLACE_ID = 16732694052; // Fisch
+
+    // ==== DOM ====
+    const ccuNowEl = document.getElementById('ccuNow');
+    const peakSessEl = document.getElementById('peakSess');
+    const deltaEl = document.getElementById('delta');
+    const lastTsEl = document.getElementById('lastTs');
+    const placeIdTxt = document.getElementById('placeIdTxt');
+    const uniIdTxt = document.getElementById('universeIdTxt');
+    const rbxLink = document.getElementById('rbxLink');
+    const intervalSel = document.getElementById('intervalSel');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const markBtn = document.getElementById('markBtn');
+    const csvBtn = document.getElementById('csvBtn');
+    const persistChk = document.getElementById('persistChk');
+    const smoothChk = document.getElementById('smoothChk');
+    const rangeTxt = document.getElementById('rangeTxt');
+
+    placeIdTxt.textContent = PLACE_ID;
+    rbxLink.href = `https://www.roblox.com/games/${PLACE_ID}`;
+
+    // ==== State ====
+    const points = [];   // { t:number (ms), v:number }
+    const markers = [];  // timestamps (ms)
+    let peak = 0, prev = null, timer = null, paused = false;
+
+    // Load persisted state
+    const LS_KEY = 'fisch_ccu_points_v1';
+    const LS_MRK = 'fisch_ccu_markers_v1';
+    if (localStorage.getItem(LS_KEY)) {
+      try { points.push(...JSON.parse(localStorage.getItem(LS_KEY))); } catch {}
+    }
+    if (localStorage.getItem(LS_MRK)) {
+      try { markers.push(...JSON.parse(localStorage.getItem(LS_MRK))); } catch {}
+    }
+
+    // ==== Canvas ====
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width * window.devicePixelRatio);
+      canvas.height = Math.floor(260 * window.devicePixelRatio);
+    }
+    window.addEventListener('resize', ()=>{ resizeCanvas(); drawChart(); });
+    resizeCanvas();
+
+    function yScale(min, max, v, H) {
+      const pad = (max - min) || 1;
+      return H - ((v - min) / pad) * (H - 20) - 10; // top/bottom padding
+    }
+
+    function drawAxes(min, max) {
+      const W = canvas.width, H = canvas.height;
+      ctx.save();
+      // Horizontal grid lines + labels (min, mid, max)
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis');
+      ctx.fillStyle = '#8aa3bd';
+      ctx.lineWidth = 1; ctx.globalAlpha = 0.25; ctx.beginPath();
+      const levels = [min, (min+max)/2, max];
+      levels.forEach((val)=>{
+        const y = yScale(min, max, val, H);
+        ctx.moveTo(0, y); ctx.lineTo(W, y);
+      });
+      ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.font = `${12*window.devicePixelRatio}px ui-monospace, monospace`;
+      ctx.textBaseline = 'middle';
+      const fmt = n => new Intl.NumberFormat().format(Math.round(n));
+      levels.forEach((val)=>{
+        const y = yScale(min, max, val, H);
+        ctx.fillText(fmt(val), 8*window.devicePixelRatio, y);
+      });
+      ctx.restore();
+    }
+
+    function drawChart() {
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0,0,W,H);
+      if (points.length < 2) return;
+
+      const min = Math.min(...points.map(p=>p.v));
+      const max = Math.max(...points.map(p=>p.v));
+      drawAxes(min, max);
+
+      // X step
+      const xstep = W / Math.max(points.length - 1, 1);
+
+      // Line path (optionally smoothed)
+      ctx.beginPath();
+      points.forEach((p, i)=>{
+        const x = i * xstep;
+        const y = yScale(min, max, p.v, H);
+        if (!smoothChk.checked) {
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        } else {
+          // Simple smoothing via quadratic bezier to the midpoint between this and next
+          if (i === 0) ctx.moveTo(x, y);
+          else {
+            const prevX = (i-1) * xstep;
+            const prevY = yScale(min, max, points[i-1].v, H);
+            const midX = (prevX + x)/2;
+            const midY = (prevY + y)/2;
+            ctx.quadraticCurveTo(prevX, prevY, midX, midY);
+            if (i === points.length-1) ctx.quadraticCurveTo(midX, midY, x, y);
+          }
+        }
+      });
+      ctx.lineWidth = 3*window.devicePixelRatio; ctx.strokeStyle = '#5fb3ff'; ctx.stroke();
+
+      // Fill under
+      const grad = ctx.createLinearGradient(0,0,0,H);
+      grad.addColorStop(0,'rgba(95,179,255,.22)');
+      grad.addColorStop(1,'rgba(95,179,255,0)');
+      ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath();
+      ctx.fillStyle = grad; ctx.fill();
+
+      // Markers
+      ctx.save();
+      ctx.strokeStyle = '#ffd166';
+      ctx.fillStyle = '#ffd166';
+      ctx.lineWidth = 2*window.devicePixelRatio;
+      markers.forEach(ts=>{
+        // find closest index
+        const idx = points.findIndex(p=>p.t>=ts);
+        if (idx < 0) return;
+        const x = idx * xstep;
+        ctx.beginPath();
+        ctx.moveTo(x, 10); ctx.lineTo(x, H-10);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, 10, 4*window.devicePixelRatio, 0, Math.PI*2); ctx.fill();
+      });
+      ctx.restore();
+
+      // Range text
+      const start = new Date(points[0].t).toLocaleTimeString();
+      const end = new Date(points[points.length-1].t).toLocaleTimeString();
+      rangeTxt.textContent = `Window: ${start} → ${end}  •  Min ${fmt(min)}  •  Max ${fmt(max)}`;
+    }
+
+    async function fetchUniverseId(placeId) {
+      const url = `https://apis.roproxy.com/universes/v1/places/${placeId}/universe`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`UniverseId fetch failed ${r.status}`);
+      const j = await r.json();
+      return j.universeId;
+    }
+
+    async function fetchPlaying(universeId) {
+      const url = `https://games.roproxy.com/v1/games?universeIds=${universeId}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Games fetch failed ${r.status}`);
+      const j = await r.json();
+      const data = j.data && j.data[0];
+      if (!data) throw new Error('No data for universe');
+      return data.playing;
+    }
+
+    function fmt(n){ return Intl.NumberFormat().format(n); }
+    function stamp(){ return new Date().toLocaleTimeString(); }
+
+    function persistIfNeeded(){
+      if (!persistChk.checked) return;
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(points));
+        localStorage.setItem(LS_MRK, JSON.stringify(markers));
+      } catch {}
+    }
+
+    async function poll() {
+      try {
+        if (paused) return;
+        const playing = await fetchPlaying(window.__UNI_ID);
+        const now = { t: Date.now(), v: playing };
+        points.push(now);
+        // keep ~20 min @5s (240 points) by default; if persisted, keep up to ~24h (~17280 @5s) but clamp to 3600
+        const limit = persistChk.checked ? 3600 : 240;
+        if (points.length > limit) points.splice(0, points.length - limit);
+        peak = Math.max(peak, playing);
+        const d = prev==null? 0 : (playing - prev);
+        prev = playing;
+        ccuNowEl.textContent = fmt(playing);
+        peakSessEl.textContent = fmt(peak);
+        deltaEl.textContent = (d>0?'+':'') + fmt(d);
+        deltaEl.style.color = d>=0 ? 'var(--good)' : 'var(--bad)';
+        lastTsEl.textContent = stamp();
+        drawChart();
+        persistIfNeeded();
+      } catch (e) {
+        console.error(e);
+        deltaEl.textContent = 'error';
+        deltaEl.style.color = 'var(--bad)';
+      }
+    }
+
+    async function init(){
+      try {
+        const uni = await fetchUniverseId(PLACE_ID);
+        window.__UNI_ID = uni;
+        uniIdTxt.textContent = uni;
+        await poll();
+        setTimer(parseInt(intervalSel.value,10));
+      } catch (e) {
+        ccuNowEl.textContent = 'Failed to init';
+        console.error(e);
+      }
+    }
+
+    function setTimer(ms){ if (timer) clearInterval(timer); timer = setInterval(poll, ms); }
+
+    // ==== UI Handlers ====
+    intervalSel.addEventListener('change', e=>setTimer(parseInt(e.target.value,10)));
+    pauseBtn.addEventListener('click', ()=>{ paused = !paused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; });
+    markBtn.addEventListener('click', ()=>{ markers.push(Date.now()); drawChart(); persistIfNeeded(); });
+    csvBtn.addEventListener('click', ()=>{
+      const rows = [['timestamp_iso','ccu']].concat(points.map(p=>[new Date(p.t).toISOString(), p.v]));
+      const csv = rows.map(r=>r.join(',')).join('
+');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'fisch_ccu.csv'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Persist checkbox restores previous state
+    persistChk.checked = !!localStorage.getItem(LS_KEY);
+
+    init();
+  </script>
+</body>
+</html>
